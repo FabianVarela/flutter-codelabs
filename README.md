@@ -2,7 +2,7 @@
 
 Primero, exporté el archivo Markdown del codelab usando el comando claat export:
 ```bash
-claat export codelabs/data-connect-flutter.md
+cd catalog/codelabs && claat export -o .. sql-connect-flutter.md
 ```
 
 Explicación:
@@ -11,7 +11,7 @@ Explicación:
 - El último parámetro es la ruta al archivo de Markdown de origen.
 
 Resultado:
-Este comando creó/actualizó el folder data-connect-flutter/ con:
+Este comando creó/actualizó el folder sql-connect-flutter/ con:
 - codelab.json - metadata del codelab
 - index.html - el contenido HTML generado
 - img/ - folder con las imágenes
@@ -20,7 +20,14 @@ Este comando creó/actualizó el folder data-connect-flutter/ con:
 
 Finalmente, ejecuté el servidor de desarrollo:
 ```bash
-cd /site && gulp serve
+cd catalog
+node build-index.js . codelabs.json
+
+# Para ejecutar local con claat
+claat serve
+
+# Para ejecutar local con python
+python3 -m http.server 8000
 ```
 
 Resultado:

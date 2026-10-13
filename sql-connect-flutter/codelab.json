@@ -1,0 +1,24 @@
+{
+  "environment": "web",
+  "format": "html",
+  "prefix": "https://cdn.jsdelivr.net/gh/Bit-Blazer/codelab-tools@main/codelab-elements/build",
+  "mainga4": "G-XXXXXXXXXX",
+  "updated": "2026-10-12T19:03:07-05:00",
+  "id": "sql-connect-flutter",
+  "duration": 108,
+  "title": "Firebase SQL Connect con Flutter",
+  "authors": [
+    "Fabián Varela"
+  ],
+  "summary": "Firebase SQL Connect con Flutter",
+  "source": "sql-connect-flutter.md",
+  "theme": "",
+  "status": "Published",
+  "categories": [
+    "flutter"
+  ],
+  "tags": [
+    "medium"
+  ],
+  "feedback_link": "https://github.com/FabianVarela"
+}

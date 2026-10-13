@@ -1,0 +1,21 @@
+[
+  {
+    "id": "sql-connect-flutter",
+    "title": "Firebase SQL Connect con Flutter",
+    "summary": "Firebase SQL Connect con Flutter",
+    "categories": [
+      "flutter"
+    ],
+    "tags": [
+      "medium"
+    ],
+    "duration": 108,
+    "updated": "2026-10-12T19:03:07-05:00",
+    "authors": [
+      "Fabián Varela"
+    ],
+    "status": "Published",
+    "url": "sql-connect-flutter/index.html",
+    "source": "sql-connect-flutter.md"
+  }
+]
