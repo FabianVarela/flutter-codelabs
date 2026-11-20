@@ -2,7 +2,8 @@
 
 Primero, exporté el archivo Markdown del codelab usando el comando claat export:
 ```bash
-cd catalog/codelabs && claat export -o .. sql-connect-flutter.md
+# Existen dos: sql-connect-flutter y genkit-dart-flutter
+cd catalog/codelabs && claat export -o .. [markdown-file].md
 ```
 
 Explicación:
@@ -16,7 +17,7 @@ Este comando creó/actualizó el folder sql-connect-flutter/ con:
 - index.html - el contenido HTML generado
 - img/ - folder con las imágenes
 
-### Paso 2: Ejecutar el servidor con gulp
+### Paso 2: Ejecutar el servidor
 
 Finalmente, ejecuté el servidor de desarrollo:
 ```bash
