@@ -4,18 +4,40 @@
     "title": "Firebase SQL Connect con Flutter",
     "summary": "Firebase SQL Connect con Flutter",
     "categories": [
-      "flutter"
+      "flutter",
+      "firebase"
     ],
     "tags": [
       "medium"
     ],
-    "duration": 108,
-    "updated": "2026-10-12T19:03:07-05:00",
+    "duration": 133,
+    "updated": "2026-11-19T20:49:13-05:00",
     "authors": [
       "Fabián Varela"
     ],
     "status": "Published",
     "url": "sql-connect-flutter/index.html",
     "source": "sql-connect-flutter.md"
+  },
+  {
+    "id": "genkit-dart-flutter",
+    "title": "Integrando GenKit Dart en Flutter",
+    "summary": "Integrando GenKit Dart en Flutter",
+    "categories": [
+      "flutter",
+      "genkit",
+      "firebase"
+    ],
+    "tags": [
+      "medium"
+    ],
+    "duration": 101,
+    "updated": "2026-11-19T20:49:13-05:00",
+    "authors": [
+      "Fabián Varela"
+    ],
+    "status": "Published",
+    "url": "genkit-dart-flutter/index.html",
+    "source": "genkit-dart-flutter.md"
   }
 ]
