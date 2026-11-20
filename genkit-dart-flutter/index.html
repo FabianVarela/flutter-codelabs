@@ -1,0 +1,1700 @@
+
+<!doctype html>
+
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1.0, user-scalable=yes">
+  <meta name="theme-color" content="#4F7DC9">
+  <meta charset="UTF-8">
+  <title>Integrando GenKit Dart en Flutter</title>
+  <meta name="description" content="Integrando GenKit Dart en Flutter">
+  <meta name="keywords" content="tag_medium,category_flutter,category_genkit,category_firebase">
+  <meta name="authors" content="Fabián Varela">
+  <meta name="duration" content="101">
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Source+Code+Pro:400|Roboto:400,300,400italic,500,700|Roboto+Mono">
+  <link rel="stylesheet" href="//fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Bit-Blazer/codelab-tools@main/codelab-elements/build/codelab-elements.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/monokai.min.css">
+  <style>
+    .success {
+      color: #1e8e3e;
+    }
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <google-codelab-analytics ga4id="G-XXXXXXXXXX"></google-codelab-analytics>
+  <google-codelab codelab-ga4id=""
+                  id="genkit-dart-flutter"
+                  codelab-title="Integrando GenKit Dart en Flutter"
+                  environment="web"
+                  feedback-link="https://github.com/FabianVarela"
+                  >
+    
+      <google-codelab-step label="Overview" duration="3">
+        
+        <google-codelab-about 
+                      codelab-title="Integrando GenKit Dart en Flutter"
+                      authors='Fabián Varela'
+                      last-updated="2026-11-19T20:49:13-05:00">
+        </google-codelab-about>
+        
+        <p>En este codelab vas a construir <strong>ViajarIA</strong>, el asistente de viajes de una agencia digital, usando <strong>GenKit Dart 1.0</strong> (GA desde el 7 de octubre de 2026).</p>
+<p>Vas a empezar con un servidor Dart mínimo y terminar con una app Flutter que conversa con un agente, muestra interfaz generada por él (A2UI) y le pide confirmación al usuario antes de actuar (interrupts).</p>
+<h2 is-upgraded>Lo que vas a construir</h2>
+<pre> App Flutter ──HTTP──▶ Servidor Dart (Genkit) ──▶ Gemini (u otro proveedor)
+                              │
+                              └─ tools / flows / agente
+</pre>
+<h2 is-upgraded>Lo que vas a aprender</h2>
+<ul>
+<li>Usar <code>generate()</code> y salida estructurada con <strong>schemas</strong> (<code>schemantic</code>).</li>
+<li>Definir <strong>flows</strong> y <strong>tools</strong> con tipos.</li>
+<li>Mover el prompt de un flow a un archivo <code>.prompt</code> con <strong>Dotprompt</strong>.</li>
+<li>Probar con el <strong>Developer UI</strong>.</li>
+<li>Servir todo por HTTP con <code>GenkitRouter</code>.</li>
+<li>Crear un <strong>agente</strong> y usarlo desde Flutter con <code>remoteAgent</code>.</li>
+<li>Aplicar <strong>middleware</strong>: <code>retry()</code> y uno propio.</li>
+<li>Hacer que el agente responda con interfaz (A2UI), con un catálogo propio en JSON.</li>
+<li>Pausar una tool con un <strong>interrupt</strong> para pedir confirmación al usuario.</li>
+</ul>
+<h2 is-upgraded>Lo que necesitas</h2>
+<ul>
+<li>Dart SDK <strong>3.13.0 o superior</strong> y Flutter <strong>3.47.0 o superior</strong>.</li>
+<li>Una <strong>API key de Gemini</strong> (Google AI Studio).</li>
+<li>Node.js (para el GenKit CLI).</li>
+<li>Un editor y una terminal.</li>
+</ul>
+<aside class="warning"><p>La <strong>Agents API</strong> (<code>defineAgent</code>, <code>remoteAgent</code>, stores, interrupts) sigue siendo <strong>experimental</strong> dentro de GenKit Dart 1.0: vive en <code>package:genkit/experimental.dart</code> y la documentación la llama Beta. El resto (flows, tools, schemas, middleware, HTTP) es estable.</p>
+</aside>
+<aside class="special"><p>Todo el código de este codelab sale de la documentación oficial de <em>genkit.dev</em> y de los paquetes publicados en pub.dev, adaptado a una agencia de viajes.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Prepara el entorno" duration="10">
+        
+        <h2 is-upgraded>Verifica Dart y Flutter</h2>
+<pre>dart --version
+flutter --version
+</pre>
+<p>Dart debe ser <strong>3.13.0 o superior</strong> y Flutter <strong>3.47.0 o superior</strong>.</p>
+<h2 is-upgraded>Instala el GenKit CLI</h2>
+<p>Con npm:</p>
+<pre>npm install -g genkit-cli
+</pre>
+<p>O con el instalador de binarios:</p>
+<pre>curl -sL cli.genkit.dev | bash
+</pre>
+<h2 is-upgraded>Consigue tu API key</h2>
+<p>Entra a <a href="https://aistudio.google.com/" target="_blank">Google AI Studio</a>, crea una API key de Gemini y expórtala:</p>
+<pre>export GEMINI_API_KEY=&lt;tu-api-key&gt;
+</pre>
+<aside class="warning"><p>Esa key es <strong>tuya y de tu servidor</strong>. Más adelante la app Flutter nunca la va a ver: ese es justo el punto de tener un backend.</p>
+</aside>
+<h2 is-upgraded>Crea el proyecto del servidor</h2>
+<pre>dart create -t console viajaria_server
+cd viajaria_server
+</pre>
+<p>Agrega las dependencias. Verifica que sean la última versión:</p>
+<pre>dart pub add genkit genkit_google_genai schemantic dev:build_runner dev:schemantic_builder
+</pre>
+<p>Estructura que vamos a usar:</p>
+<pre>viajaria_server/
+├── pubspec.yaml
+├── prompts/          ← los archivos .prompt (Dotprompt)
+└── bin/
+    └── server.dart   ← todo el código del servidor
+</pre>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Tu primer método 
+generate()" duration="5">
+        
+        <p><code>dart create</code> generó <code>bin/viajaria_server.dart</code> con un ejemplo. Bórralo y crea <code>bin/server.dart</code> con lo siguiente:</p>
+<pre>rm bin/viajaria_server.dart
+</pre>
+<h2 is-upgraded>bin/server.dart</h2>
+<pre><code language="language-dart" class="language-dart">import &#39;package:genkit/genkit.dart&#39;;
+import &#39;package:genkit_google_genai/genkit_google_genai.dart&#39;;
+
+Future&lt;void&gt; main() async {
+  final ai = Genkit(plugins: [googleAI()]); // lee GEMINI_API_KEY
+
+  final response = await ai.generate(
+    model: googleAI.gemini(&#39;gemini-flash-latest&#39;),
+    prompt: &#39;Dame una frase corta de bienvenida para una agencia de viajes digital.&#39;,
+  );
+
+  print(response.text);
+}
+</code></pre>
+<p>Ejecútalo:</p>
+<pre>dart run bin/server.dart
+</pre>
+<p>Deberías ver una frase generada por Gemini.</p>
+<aside class="special"><p><strong>Qué pasó: </strong><code>Genkit(plugins: [...])</code> crea la instancia, <code>googleAI()</code> registra el plugin y <code>ai.generate()</code> llama al modelo. Cambiar de proveedor es cambiar el plugin y el modelo; el resto del código no se toca.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Schemas: salida con tipos" duration="5">
+        
+        <p>Para que el modelo responda con una <strong>estructura</strong> y no con texto libre, usas <code>schemantic</code>. Declaras clases abstractas con <code>@Schema()</code> y GenKit genera el resto.</p>
+<h2 is-upgraded>bin/server.dart (reemplaza los imports y agrega arriba de main)</h2>
+<p>Los dos primeros imports ya los tienes; el nuevo es el de <code>schemantic</code>. Debajo de ellos van el <code>part</code> y los schemas:</p>
+<pre><code language="language-dart" class="language-dart">import &#39;package:genkit/genkit.dart&#39;;
+import &#39;package:genkit_google_genai/genkit_google_genai.dart&#39;;
+import &#39;package:schemantic/schemantic.dart&#39;;
+
+part &#39;server.g.dart&#39;;
+
+// Lo que recibe el flow
+@Schema()
+abstract class $RecommendInput {
+  String get topic;
+}
+
+// Lo que devuelve el flow
+@Schema()
+abstract class $TripRecommendation {
+  String get destination;
+
+  String get country;
+
+  String get reason;
+}
+
+// Lo que recibe la tool
+@Schema()
+abstract class $SearchDestinationsInput {
+  String get query;
+
+  String? get type;
+
+  int? get limit;
+}
+</code></pre>
+<p>Reglas: la clase es <strong>abstracta</strong>, su nombre lleva el prefijo <code>$</code> y los campos son <strong>getters</strong>.</p>
+<p>Genera el código:</p>
+<pre>dart run build_runner build
+</pre>
+<p>Esto crea <code>bin/server.g.dart</code> con las clases <code>RecommendInput</code>, <code>TripRecommendation</code> y <code>SearchDestinationsInput</code> (sin el <code>$</code>). Cada una trae <code>.$schema</code>, <code>toJson()</code> y <code>fromJson()</code>.</p>
+<aside class="warning"><p>Si cambias los campos de un schema, vuelve a correr <code>build_runner</code>. Con GenKit 1.0 hay que regenerar los archivos <code>.g.dart</code>.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Un flow con su prompt en un archivo" duration="10">
+        
+        <p>Un <strong>flow</strong> es una función con entrada y salida tipadas, observable y desplegable como endpoint. Su prompt lo vamos a guardar en un archivo <code>.prompt</code> con <strong>Dotprompt</strong>, en vez de escribirlo como un string en el código.</p>
+<p><strong>Dotprompt</strong> guarda cada prompt en un archivo: un encabezado YAML (modelo, entrada, salida) y una plantilla Handlebars. Así puedes cambiar la redacción sin tocar el código, y alguien que no programa puede revisarla.</p>
+<h2 is-upgraded>prompts/recommend.prompt</h2>
+<p>Por defecto GenKit carga los <code>.prompt</code> de <code>./prompts</code>, relativa a donde ejecutas el servidor. Crea la carpeta y el archivo. La entrada y la salida se describen con <strong>Picoschema</strong>, una forma compacta de escribir el esquema:</p>
+<pre>mkdir prompts
+</pre>
+<pre><code>---
+model: googleai/gemini-flash-latest
+input:
+  schema:
+    topic: string, qué busca el usuario (playa, montaña, cultura...)
+output:
+  format: json
+  schema:
+    destination: string
+    country: string
+    reason: string, por qué se lo recomiendas
+---
+&#123;&#123;role &#34;system&#34;}}
+Eres ViajarIA, la asistente de viajes de una agencia digital. Recomienda destinos reales y responde en español.
+
+&#123;&#123;role &#34;user&#34;}}
+Recomienda un destino de viaje para &#34;&#123;&#123;topic}}&#34;.
+</code></pre>
+<aside class="warning"><p>En Picoschema la descripción va <strong>después de una coma</strong>: <code>topic: string, la descripción</code>. Escribir <code>topic(la descripción): string</code> es inválido: ese paréntesis es solo para el tipo (<code>array</code>, <code>object</code>, <code>enum</code>).</p>
+</aside>
+<h2 is-upgraded>bin/server.dart (dentro de main)</h2>
+<p>Carga el prompt y úsalo dentro del flow. Como el archivo no tiene tipo de Dart, pásale <code>outputParserSchema</code> para que la salida llegue como <code>TripRecommendation</code>:</p>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  final ai = Genkit(plugins: [googleAI()]);
+
+  // -&gt; prompts/recommend.prompt
+  final recommendPrompt = await ai.prompt(
+    &#39;recommend&#39;,
+    outputParserSchema: TripRecommendation.$schema,
+  );
+
+  final recommendFlow = ai.defineFlow(
+    name: &#39;recommendTrip&#39;,
+    inputSchema: RecommendInput.$schema,
+    outputSchema: TripRecommendation.$schema,
+    fn: (input, _) async {
+      // La entrada es el mapa con las variables de la plantilla.
+      final response = await recommendPrompt({&#39;topic&#39;: input.topic});
+
+      if (response.output == null) {
+        throw Exception(&#39;La respuesta no cumple el schema.&#39;);
+      }
+      return response.output!;
+    },
+  );
+
+  final rec = await recommendFlow(RecommendInput(topic: &#39;playa&#39;));
+  print(&#39;${rec.destination} — ${rec.country}: ${rec.reason}&#39;);
+}
+</code></pre>
+<pre>dart run bin/server.dart
+</pre>
+<aside class="special"><p>Un flow se llama como una función: <code>await recommendFlow(RecommendInput(...))</code>. El compilador te dice qué campos tiene la respuesta.</p>
+</aside>
+<aside class="special"><p><code>outputParserSchema</code> <strong>no se envía al modelo</strong>: el que se envía es el <code>output.schema</code> del archivo. Solo le dice a Dart a qué tipo convertir la respuesta.</p>
+</aside>
+<aside class="special"><p>Un archivo <code>recommend.breve.prompt</code> sería una <strong>variante</strong> del mismo prompt, y la cargas con <code>ai.prompt(&#39;recommend&#39;, variant: &#39;breve&#39;, ...)</code>. Te sirve para comparar redacciones sin duplicar código.</p>
+</aside>
+<aside class="warning"><p>Como se leen desde disco, la carpeta <code>prompts/</code> tiene que viajar con tu servidor cuando lo despliegues.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Una tool con datos de ejemplo" duration="5">
+        
+        <p>Una <strong>tool</strong> es una función que el modelo puede decidir llamar. Por ahora usa un catálogo fijo.</p>
+<h2 is-upgraded>bin/server.dart (arriba de main)</h2>
+<pre><code language="language-dart" class="language-dart">const catalog = [
+  {&#39;name&#39;: &#39;Cartagena&#39;, &#39;country&#39;: &#39;Colombia&#39;, &#39;type&#39;: &#39;ciudad histórica&#39;},
+  {&#39;name&#39;: &#39;Salento&#39;, &#39;country&#39;: &#39;Colombia&#39;, &#39;type&#39;: &#39;naturaleza&#39;},
+  {&#39;name&#39;: &#39;Parque Tayrona&#39;, &#39;country&#39;: &#39;Colombia&#39;, &#39;type&#39;: &#39;playa&#39;},
+  {&#39;name&#39;: &#39;Cusco&#39;, &#39;country&#39;: &#39;Perú&#39;, &#39;type&#39;: &#39;cultura&#39;},
+  {&#39;name&#39;: &#39;Ciudad de México&#39;, &#39;country&#39;: &#39;México&#39;, &#39;type&#39;: &#39;gastronomía&#39;},
+  {&#39;name&#39;: &#39;Lisboa&#39;, &#39;country&#39;: &#39;Portugal&#39;, &#39;type&#39;: &#39;ciudad histórica&#39;},
+];
+</code></pre>
+<h2 is-upgraded>bin/server.dart (dentro de main, después de crear <code>ai</code>)</h2>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  // El código anterior...
+
+  final searchDestinations = ai.defineTool(
+    name: &#39;searchDestinations&#39;,
+    description: &#39;Busca destinos del catálogo por nombre, país o tipo.&#39;,
+    inputSchema: SearchDestinationsInput.$schema,
+    fn: (input, _) async {
+      final q = input.query.toLowerCase();
+      final results = catalog
+          .where((b) {
+            return (b[&#39;name&#39;]!.toLowerCase().contains(q) ||
+                    b[&#39;country&#39;]!.toLowerCase().contains(q)) &amp;&amp;
+                (input.type == null || b[&#39;type&#39;] == input.type);
+          })
+          .take(input.limit ?? 5)
+          .toList();
+
+      // Una tool devuelve un ToolResult: .response(...) con el resultado.
+      return .response(results);
+    },
+  );
+
+  // Pruébala pidiéndole al modelo que la use.
+  final response = await ai.generate(
+    model: googleAI.gemini(&#39;gemini-flash-latest&#39;),
+    prompt: &#39;¿Tienen algo en Perú?&#39;,
+    toolNames: [&#39;searchDestinations&#39;],
+  );
+  print(response.text);
+}
+</code></pre>
+<aside class="special"><p>Nota que el modelo decide <strong>cuándo</strong> llamar la tool y con qué argumentos. Tú solo la describes bien (<code>description</code> y los campos del schema).</p>
+</aside>
+<aside class="special"><p>Una tool también puede devolver <code>.interrupt()</code> para pausar la conversación. Lo usamos al final del codelab.</p>
+</aside>
+<aside class="warning"><p>Si alguna vez no se imprime nada, ejecútalo de nuevo: de vez en cuando el modelo devuelve una respuesta vacía. Es una variación del modelo, no un error de tu código.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Developer UI" duration="5">
+        
+        <p>GenKit trae una interfaz local para probar flows, tools, prompts y modelos sin escribir código de prueba.</p>
+<pre>genkit start -- dart run bin/server.dart
+</pre>
+<p>Abre <a href="http://localhost:4000" target="_blank">http://localhost:4000</a>. Ahí puedes:</p>
+<ul>
+<li>Ejecutar <code>recommendTrip</code> con una entrada JSON</li>
+<li>Probar la tool <code>searchDestinations</code></li>
+<li>Abrir el prompt <code>recommend</code>, cambiar sus parámetros y ejecutarlo</li>
+<li>Lanzar el modelo directamente</li>
+</ul>
+<aside class="warning"><p>Para que el Developer UI vea tus flows el proceso tiene que <strong>seguir corriendo</strong>. Si tu <code>main()</code> termina de inmediato, no verás nada. En el siguiente paso lo dejamos como servidor.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Sirve todo por HTTP" duration="5">
+        
+        <p>Convierte el <code>main()</code> en un servidor con <code>GenkitRouter</code>.</p>
+<h2 is-upgraded>bin/server.dart (imports nuevos)</h2>
+<pre><code language="language-dart" class="language-dart">import &#39;package:genkit/io.dart&#39;; // GenkitRouter, CorsOptions
+</code></pre>
+<h2 is-upgraded>bin/server.dart (al final de main)</h2>
+<p>Quita las pruebas con <code>print</code> y, al final de <code>main</code>, crea el router:</p>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  // El código anterior...
+
+  final genkit = GenkitRouter()..addAction(recommendFlow);
+
+  await genkit.serve(
+    port: 8080,
+    cors: const CorsOptions(), // todos los orígenes: solo para desarrollo
+  );
+}
+</code></pre>
+<p>Ejecuta y prueba con curl:</p>
+<pre>dart run bin/server.dart
+</pre>
+<pre>curl -N -X POST http://localhost:8080/recommendTrip \
+  -H &#34;Content-Type: application/json&#34; \
+  -d &#39;{&#34;data&#34;:{&#34;topic&#34;:&#34;playa&#34;}}&#39;
+</pre>
+<aside class="special"><p>Cada acción se registra como <code>POST /&lt;nombre&gt;</code>. El cuerpo <strong>siempre</strong> lleva el wrapper <code>{&#34;data&#34;: ...}</code>.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Un agente con memoria" duration="5">
+        
+        <p>Un <strong>agente</strong> empaqueta el historial de la conversación, el bucle de tools, el streaming y la persistencia de sesión.</p>
+<aside class="warning"><p><strong>Experimental.</strong> Los imports de <code>experimental.dart</code> te darán un warning <code>experimental_member_use</code> del analyzer. Es esperado.</p>
+</aside>
+<h2 is-upgraded>bin/server.dart (imports nuevos)</h2>
+<pre><code language="language-dart" class="language-dart">import &#39;package:genkit/experimental.dart&#39;; // defineAgent, InMemorySessionStore
+import &#39;package:genkit/experimental_io.dart&#39;; // addAgent
+</code></pre>
+<h2 is-upgraded>bin/server.dart (antes de crear el router)</h2>
+<p>Un <strong>middleware</strong> envuelve cada llamada al modelo para agregar comportamiento sin tocar tu lógica. Se declara en la lista <code>use: [...]</code>. El primero que usamos viene en el core: <code>retry()</code>, que reintenta si falla la llamada al modelo.</p>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  // El código anterior...
+
+  final agent = ai.defineAgent(
+    name: &#39;viajaria&#39;,
+    model: googleAI.gemini(&#39;gemini-flash-latest&#39;),
+    system:
+        &#39;Eres ViajarIA, la asistente de viajes de una agencia digital. &#39;
+        &#39;Ayudas a buscar destinos con la tool searchDestinations. Responde en español.&#39;,
+    tools: [searchDestinations],
+    // middleware: reintenta si falla el modelo
+    use: [retry(maxRetries: 2)],
+    // guarda las sesiones en memoria
+    store: InMemorySessionStore(),
+  );
+
+  final genkit = GenkitRouter()
+    ..addAction(recommendFlow)
+    ..addAgent(agent, path: &#39;/api/viajaria&#39;);
+
+  // El código anterior...
+}
+</code></pre>
+<p><code>addAgent</code> monta la ruta del turno (<code>POST /api/viajaria</code>) y, como el agente tiene un store, también <code>/getSnapshot</code> y <code>/abort</code> cuando corresponde.</p>
+<aside class="special"><p><code>InMemorySessionStore</code> es solo para pruebas: se pierde al reiniciar y no sirve con varias instancias. Para desarrollo local hay <code>FileSessionStore(&#39;.sessions&#39;)</code>.</p>
+</aside>
+<aside class="special"><p><code>retry()</code> también sirve en una llamada suelta (<code>ai.generate(..., use: [retry(maxRetries: 2)])</code>) y en el encabezado de un <code>.prompt</code>. Más adelante vas a escribir un middleware propio.</p>
+</aside>
+<h2 is-upgraded>Servidor completo hasta aquí</h2>
+<pre><code language="language-dart" class="language-dart">import &#39;package:genkit/experimental.dart&#39;;
+import &#39;package:genkit/experimental_io.dart&#39;;
+import &#39;package:genkit/genkit.dart&#39;;
+import &#39;package:genkit/io.dart&#39;;
+import &#39;package:genkit_google_genai/genkit_google_genai.dart&#39;;
+import &#39;package:schemantic/schemantic.dart&#39;;
+
+part &#39;server.g.dart&#39;;
+
+@Schema()
+abstract class $RecommendInput {
+  String get topic;
+}
+
+@Schema()
+abstract class $TripRecommendation {
+  String get destination;
+
+  String get country;
+
+  String get reason;
+}
+
+@Schema()
+abstract class $SearchDestinationsInput {
+  String get query;
+
+  String? get type;
+
+  int? get limit;
+}
+
+const catalog = [
+  {&#39;name&#39;: &#39;Cartagena&#39;, &#39;country&#39;: &#39;Colombia&#39;, &#39;type&#39;: &#39;ciudad histórica&#39;},
+  {&#39;name&#39;: &#39;Salento&#39;, &#39;country&#39;: &#39;Colombia&#39;, &#39;type&#39;: &#39;naturaleza&#39;},
+  {&#39;name&#39;: &#39;Parque Tayrona&#39;, &#39;country&#39;: &#39;Colombia&#39;, &#39;type&#39;: &#39;playa&#39;},
+  {&#39;name&#39;: &#39;Cusco&#39;, &#39;country&#39;: &#39;Perú&#39;, &#39;type&#39;: &#39;cultura&#39;},
+  {&#39;name&#39;: &#39;Ciudad de México&#39;, &#39;country&#39;: &#39;México&#39;, &#39;type&#39;: &#39;gastronomía&#39;},
+  {&#39;name&#39;: &#39;Lisboa&#39;, &#39;country&#39;: &#39;Portugal&#39;, &#39;type&#39;: &#39;ciudad histórica&#39;},
+];
+
+Future&lt;void&gt; main() async {
+  final ai = Genkit(plugins: [googleAI()]);
+
+  final recommendPrompt = await ai.prompt(
+    &#39;recommend&#39;,
+    outputParserSchema: TripRecommendation.$schema,
+  );
+
+  final recommendFlow = ai.defineFlow(
+    name: &#39;recommendTrip&#39;,
+    inputSchema: RecommendInput.$schema,
+    outputSchema: TripRecommendation.$schema,
+    fn: (input, _) async {
+      final response = await recommendPrompt({&#39;topic&#39;: input.topic});
+
+      if (response.output == null) {
+        throw Exception(&#39;La respuesta no cumple el schema.&#39;);
+      }
+      return response.output!;
+    },
+  );
+
+  final searchDestinations = ai.defineTool(
+    name: &#39;searchDestinations&#39;,
+    description: &#39;Busca destinos del catálogo por nombre, país o tipo.&#39;,
+    inputSchema: SearchDestinationsInput.$schema,
+    fn: (input, _) async {
+      final q = input.query.toLowerCase();
+      final results = catalog
+          .where((b) {
+            return (b[&#39;name&#39;]!.toLowerCase().contains(q) ||
+                    b[&#39;country&#39;]!.toLowerCase().contains(q)) &amp;&amp;
+                (input.type == null || b[&#39;type&#39;] == input.type);
+          })
+          .take(input.limit ?? 5)
+          .toList();
+
+      return .response(results);
+    },
+  );
+
+  final agent = ai.defineAgent(
+    name: &#39;viajaria&#39;,
+    model: googleAI.gemini(&#39;gemini-flash-latest&#39;),
+    system:
+        &#39;Eres ViajarIA, la asistente de viajes de una agencia digital. &#39;
+        &#39;Ayudas a buscar destinos con la tool searchDestinations. Responde en español.&#39;,
+    tools: [searchDestinations],
+    use: [retry(maxRetries: 2)],
+    store: InMemorySessionStore(),
+  );
+
+  final genkit = GenkitRouter()
+    ..addAction(recommendFlow)
+    ..addAgent(agent, path: &#39;/api/viajaria&#39;);
+
+  await genkit.serve(port: 8080, cors: const CorsOptions());
+}
+</code></pre>
+<p>Con esto la parte de <strong>GenKit en Dart</strong> está lista. Lánzalo con <code>dart run bin/server.dart</code> y déjalo corriendo.</p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="La app Flutter" duration="10">
+        
+        <p>En <strong>otra terminal</strong>, crea la app:</p>
+<pre>flutter create viajaria_app
+cd viajaria_app
+flutter pub add genkit material_ui
+</pre>
+<p>La app <strong>no lleva</strong> el plugin de Gemini ni tu API key: solo habla con tu servidor.</p>
+<p>Borra también <code>test/widget_test.dart</code>: es el test de la app de ejemplo y deja de compilar cuando reemplazas <code>lib/main.dart</code>.</p>
+<pre>rm test/widget_test.dart
+</pre>
+<h2 is-upgraded>lib/main.dart</h2>
+<pre><code language="language-dart" class="language-dart">import &#39;package:genkit/experimental_client.dart&#39;; // remoteAgent (browser-safe)
+import &#39;package:material_ui/material_ui.dart&#39;;
+
+// Android emulator: 10.0.2.2 apunta al localhost de tu máquina.
+// iOS simulator / web / desktop: http://localhost:8080
+const baseUrl = &#39;http://10.0.2.2:8080&#39;;
+
+void main() =&gt; runApp(const MaterialApp(home: ViajarIAChat()));
+
+class ViajarIAChat extends StatefulWidget {
+  const ViajarIAChat({super.key});
+
+  @override
+  State&lt;ViajarIAChat&gt; createState() =&gt; _ViajarIAChatState();
+}
+
+class _ViajarIAChatState extends State&lt;ViajarIAChat&gt; {
+  // Solo `url` es obligatorio. getSnapshotUrl y abortUrl son opcionales
+  // (por defecto: $url/getSnapshot y $url/abort).
+  late final _agent = remoteAgent(url: &#39;$baseUrl/api/viajaria&#39;);
+  late final _chat = _agent.chat(); // el chat conserva la conversación
+
+  final _controller = TextEditingController();
+  String _answer = &#39;&#39;;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _agent.close();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =&gt; Scaffold(
+    appBar: AppBar(title: const Text(&#39;ViajarIA&#39;)),
+    body: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Expanded(child: SingleChildScrollView(child: Text(_answer))),
+          TextField(
+            controller: _controller,
+            decoration: const InputDecoration(
+              hintText: &#39;Pregunta por un destino&#39;,
+            ),
+            onSubmitted: (_) =&gt; _send(),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Future&lt;void&gt; _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _busy) return;
+
+    setState(() {
+      _busy = true;
+      _answer = &#39;&#39;;
+    });
+
+    final turn = _chat.sendStream(text: text);
+    await for (final chunk in turn.stream) {
+      setState(() =&gt; _answer += chunk.text); // chunk.text = solo este fragmento
+    }
+
+    await turn.response; // resultado final del turno
+    setState(() =&gt; _busy = false);
+  }
+}
+</code></pre>
+<p>Ejecuta la app:</p>
+<pre>flutter run
+</pre>
+<p>Pregunta: <em>&#34;¿Tienen algo en Perú?&#34;</em>, y la respuesta debe llegar por streaming.</p>
+<aside class="special"><p><strong>Qué pasó:</strong> la app llamó a <code>POST /api/viajaria</code>, el servidor ejecutó el agente, el agente llamó la tool y el texto llegó por streaming. El historial vive en el <code>chat</code>: la segunda pregunta ya recuerda la primera.</p>
+</aside>
+<aside class="warning"><p>Si pruebas en <strong>web</strong>, el servidor necesita CORS (ya lo tienes con <code>CorsOptions()</code>). En un emulador Android recuerda usar <code>10.0.2.2</code> en vez de <code>localhost</code>. En <strong>iOS/macOS</strong> la app necesita el entitlement <code>com.apple.security.network.client</code> para hablar con el servidor (en macOS, en <code>DebugProfile.entitlements</code> y <code>Release.entitlements</code>).</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Componentes de entrada con material_ui" duration="5">
+        
+        <p>En la siguiente sección el agente va a responder con interfaz usando <strong>A2UI</strong>, y la app la va a dibujar con <code>a2ui_flutter</code>. Este paquete trae una implementación de los componentes básicos (texto, tarjetas, botones, campos de formulario...), pero la hace con <code>package:flutter/material.dart</code>, y tu app usa <code>material_ui</code>. Los componentes de <strong>entrada de datos</strong> (<code>TextField</code>, <code>CheckBox</code>, <code>Slider</code>, <code>ChoicePicker</code> y <code>DateTimeInput</code>) necesitan widgets de ese Material y fallan dentro de tu app.</p>
+<p>La solución es escribir tus propias versiones de esos cinco componentes con <code>material_ui</code>. Cada una es un <code>ComponentImplementation</code>: un <code>name</code>, un <code>schema</code> y un <code>builder</code>. El <code>builder</code> lee las propiedades con <code>props</code> y, cuando el usuario edita, escribe el valor en el modelo de datos con <code>props.writable(&#39;value&#39;)?.set(...)</code>.</p>
+<aside class="special"><p>El catálogo es un <strong>contrato</strong>: dice qué componentes existen y qué propiedades tienen, sin saber nada de Flutter. Por eso cada componente reutiliza el <code>schema</code> del catálogo básico (<code>BasicComponents.textField.schema</code>): el contrato con el servidor no cambia, solo cómo se dibuja en tu app.</p>
+</aside>
+<h2 is-upgraded>Agrega los paquetes de A2UI</h2>
+<p>En <code>viajaria_app</code>:</p>
+<pre>flutter pub add a2ui_core a2ui_flutter json_schema_builder
+</pre>
+<h2 is-upgraded>lib/a2ui_inputs.dart</h2>
+<pre><code language="language-dart" class="language-dart">import &#39;package:a2ui_core/a2ui_core.dart&#39;;
+import &#39;package:a2ui_flutter/a2ui_flutter.dart&#39;;
+import &#39;package:a2ui_flutter/basic_catalog.dart&#39;;
+import &#39;package:material_ui/material_ui.dart&#39;;
+
+// Cada componente usa el MISMO nombre y schema que el del catálogo básico:
+// el contrato con el servidor no cambia, solo cómo se dibuja.
+// props.writable(&#39;value&#39;)?.set(...) escribe lo que edita el usuario en el
+// modelo de datos (null si la propiedad no está enlazada a una ruta).
+
+final textField = ComponentImplementation(
+  name: &#39;TextField&#39;,
+  schema: BasicComponents.textField.schema,
+  builder: (context, node, props, buildChild) =&gt; TextFormField(
+    initialValue: props.string(&#39;value&#39;),
+    decoration: InputDecoration(
+      labelText: props.string(&#39;label&#39;),
+      hintText: props.string(&#39;placeholder&#39;),
+    ),
+    onChanged: (text) =&gt; props.writable(&#39;value&#39;)?.set(text),
+  ),
+);
+
+final checkBox = ComponentImplementation(
+  name: &#39;CheckBox&#39;,
+  schema: BasicComponents.checkBox.schema,
+  builder: (context, node, props, buildChild) =&gt; CheckboxListTile(
+    title: Text(props.string(&#39;label&#39;) ?? &#39;&#39;),
+    value: props.boolean(&#39;value&#39;) ?? false,
+    onChanged: (checked) =&gt; props.writable(&#39;value&#39;)?.set(checked ?? false),
+  ),
+);
+
+final slider = ComponentImplementation(
+  name: &#39;Slider&#39;,
+  schema: BasicComponents.slider.schema,
+  builder: (context, node, props, buildChild) {
+    final min = props.number(&#39;min&#39;) ?? 0;
+    final max = props.number(&#39;max&#39;) ?? 100;
+    final value = (props.number(&#39;value&#39;) ?? min).clamp(min, max);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(&#39;${props.string(&#39;label&#39;) ?? &#39;&#39;}: ${value.round()}&#39;),
+        Slider(
+          value: value,
+          min: min,
+          max: max,
+          onChanged: (v) =&gt; props.writable(&#39;value&#39;)?.set(v),
+        ),
+      ],
+    );
+  },
+);
+
+final choicePicker = ComponentImplementation(
+  name: &#39;ChoicePicker&#39;,
+  schema: BasicComponents.choicePicker.schema,
+  builder: (context, node, props, buildChild) {
+    final selected = switch (props.value(&#39;value&#39;)) {
+      final List&lt;Object?&gt; values =&gt; values.whereType&lt;String&gt;().toList(),
+      final String value =&gt; [value],
+      _ =&gt; &lt;String&gt;[],
+    };
+    final multiple = props.string(&#39;variant&#39;) == &#39;multipleSelection&#39;;
+    return Wrap(
+      spacing: 8,
+      children: [
+        for (final option in props.list(&#39;options&#39;).whereType&lt;Map&gt;())
+          ChoiceChip(
+            label: Text(&#39;${option[&#39;label&#39;] ?? option[&#39;value&#39;]}&#39;),
+            selected: selected.contains(option[&#39;value&#39;]),
+            onSelected: (on) {
+              final value = &#39;${option[&#39;value&#39;]}&#39;;
+              final next = !multiple
+                  ? [value]
+                  : on
+                  ? [...selected, value]
+                  : selected.where((v) =&gt; v != value).toList();
+              props.writable(&#39;value&#39;)?.set(next);
+            },
+          ),
+      ],
+    );
+  },
+);
+
+final dateTimeInput = ComponentImplementation(
+  name: &#39;DateTimeInput&#39;,
+  schema: BasicComponents.dateTimeInput.schema,
+  builder: (context, node, props, buildChild) =&gt; ListTile(
+    leading: const Icon(Icons.event),
+    title: Text(props.string(&#39;label&#39;) ?? &#39;Fecha&#39;),
+    subtitle: Text(props.string(&#39;value&#39;) ?? &#39;Elige una fecha&#39;),
+    onTap: () async {
+      final picked = await showDatePicker(
+        context: context,
+        firstDate: DateTime.now(),
+        lastDate: DateTime(DateTime.now().year + 2),
+      );
+      if (picked == null) return;
+      // Formato de fecha de A2UI: AAAA-MM-DD.
+      props.writable(&#39;value&#39;)?.set(picked.toIso8601String().substring(0, 10));
+    },
+  ),
+);
+
+final setComponents = {
+  &#39;TextField&#39;,
+  &#39;CheckBox&#39;,
+  &#39;Slider&#39;,
+  &#39;ChoicePicker&#39;,
+  &#39;DateTimeInput&#39;,
+};
+
+/// El catálogo básico de A2UI 1.0 (mismo id que el del servidor), con los
+/// componentes de entrada dibujados con material_ui.
+final basicMaterialUiComponents = [
+  for (final c in BasicComponents.all)
+    if (!const setComponents.contains(c.name))
+      c,
+  textField,
+  checkBox,
+  slider,
+  choicePicker,
+  dateTimeInput,
+];
+
+final basicMaterialUiCatalog = CatalogImplementation(
+  id: BasicCatalog.v1_0Id,
+  protocolVersion: A2uiProtocolVersion.v1_0,
+  components: basicMaterialUiComponents,
+  functions: BasicCatalog.v1_0().functions.values.toList(),
+  definitions: BasicComponents.api.definitions,
+);
+</code></pre>
+<aside class="special"><p>Son versiones sencillas: no muestran los mensajes de validación ni las variantes del <code>TextField</code> (número, contraseña, texto largo). Para los formularios de este codelab no hace falta más.</p>
+</aside>
+<h2 is-upgraded>lib/main.dart</h2>
+<p>Los componentes que no reescribiste (como las pestañas) todavía buscan las traducciones de <code>package:flutter/material.dart</code>. Agrégalas al <code>MaterialApp</code> con <code>DefaultMaterialLocalizations.delegate</code>:</p>
+<pre><code language="language-dart" class="language-dart">// ignore: deprecated_member_use, a2ui_flutter todavía usa flutter/material.
+import &#39;package:flutter/material.dart&#39; as fm;
+
+// Los demás imports...
+
+void main() =&gt; runApp(
+  const MaterialApp(
+    localizationsDelegates: [fm.DefaultMaterialLocalizations.delegate],
+    home: ViajarIAChat(),
+  ),
+);
+</code></pre>
+<aside class="warning"><p>Mantén ese <code>localizationsDelegates</code> cada vez que cambies la pantalla inicial en las siguientes secciones.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Respuestas con UI generativa (A2UI)" duration="20">
+        
+        <p>Hasta aquí ViajarIA responde con texto. En esta sección el agente va a responder con <strong>interfaz</strong>: tarjetas de destinos, listas y botones que la app dibuja como widgets reales. Solo necesita el servidor y la app que ya tienes.</p>
+<p>Las piezas hablan el protocolo <strong>A2UI</strong> (Agent-to-UI):</p>
+<table>
+<tr><td colspan="1" rowspan="1"><p>Pieza</p>
+</td><td colspan="1" rowspan="1"><p>Dónde</p>
+</td><td colspan="1" rowspan="1"><p>Qué hace</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p><code>genkit_a2ui</code></p>
+</td><td colspan="1" rowspan="1"><p>Servidor</p>
+</td><td colspan="1" rowspan="1"><p>Middleware <code>a2ui()</code>: le enseña al modelo los componentes y convierte su respuesta</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p><code>a2ui_core</code></p>
+</td><td colspan="1" rowspan="1"><p>App</p>
+</td><td colspan="1" rowspan="1"><p>Procesa los mensajes A2UI y guarda el estado de cada superficie</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p><code>a2ui_flutter</code></p>
+</td><td colspan="1" rowspan="1"><p>App</p>
+</td><td colspan="1" rowspan="1"><p>Dibuja las superficies como widgets de Flutter</p>
+</td></tr>
+</table>
+<pre> Modelo ──Express──▶ a2ui() ──mensajes JSON──▶ stream del agente ──▶ a2ui_flutter
+</pre>
+<p>El modelo escribe la interfaz en <strong>A2UI Express</strong>, una notación compacta que gasta menos tokens que JSON. El middleware <code>a2ui()</code> la valida y la convierte en <strong>mensajes JSON</strong> (A2UI 1.0), que viajan en el mismo stream del agente.</p>
+<aside class="warning"><p><strong>Experimental. </strong><code>genkit_a2ui</code> está marcado como experimental y los paquetes de A2UI están en versión 0.x: su API cambia entre versiones. Fija las versiones en tu <code>pubspec.yaml</code>.</p>
+</aside>
+<h2 is-upgraded>Servidor: activa el middleware</h2>
+<p>En <code>viajaria_server</code>:</p>
+<pre>dart pub add genkit_a2ui
+</pre>
+<p>En <code>bin/server.dart</code> agrega el import:</p>
+<pre><code language="language-dart" class="language-dart">import &#39;package:genkit_a2ui/a2ui.dart&#39;; // A2uiPlugin, a2ui()
+</code></pre>
+<p>Registra el plugin en tu instancia de GenKit (cambia la línea donde creas <code>ai</code>):</p>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  final ai = Genkit(plugins: [googleAI(), A2uiPlugin()]);
+
+  // El código anterior...
+}
+</code></pre>
+<p>Define un segundo agente, <strong>sin tocar</strong> el de texto, y móntalo en otra ruta. Pon la definición junto a la de <code>viajaria</code> y el <code>addAgent</code> junto al que ya tienes:</p>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  // El código anterior...
+
+  final uiAgent = ai.defineAgent(
+    name: &#39;viajariaUi&#39;,
+    model: googleAI.gemini(&#39;gemini-flash-latest&#39;),
+    system:
+        &#39;Eres ViajarIA, la asistente de viajes de una agencia digital. &#39;
+        &#39;Busca destinos con la tool searchDestinations. Cuando muestres destinos, &#39;
+        &#39;una lista o un formulario, preséntalos como una superficie A2UI &#39;
+        &#39;(una Card por destino con nombre, país y tipo, y un Button &#39;
+        &#39;&#34;Me interesa&#34; cuando tenga sentido). Mantén el texto breve. &#39;
+        &#39;Responde en español.&#39;,
+    tools: [searchDestinations],
+    // el catálogo por defecto es el &#39;basic&#39;
+    use: [a2ui(), retry(maxRetries: 2)],
+    store: InMemorySessionStore(),
+  );
+
+  final genkit = GenkitRouter()
+    ..addAction(recommendFlow)
+    ..addAgent(agent, path: &#39;/api/viajaria&#39;)
+    ..addAgent(uiAgent, path: &#39;/api/viajaria-ui&#39;);
+
+  // El código anterior...
+}
+</code></pre>
+<p><code>a2ui()</code> hace tres cosas en cada llamada al modelo: le inyecta al prompt qué componentes puede usar (Text, Card, Column, Button...), extrae los bloques <code>&lt;a2ui&gt;</code> que el modelo escribe en Express, y los reemplaza por partes de datos (<code>application/a2ui+json</code>) con los mensajes JSON. Tu agente no cambia: solo le agregaste un middleware en <code>use</code>.</p>
+<p>Reinicia el servidor (<code>dart run bin/server.dart</code>).</p>
+<aside class="special"><p><code>validate</code> acepta <code>&#39;warn&#39;</code> (el valor por defecto: avisa en el log y descarta el bloque), <code>&#39;strict&#39;</code> (lanza un error) y <code>&#39;off&#39;</code>. Si un bloque no compila, <code>a2ui()</code> le pide una vez al modelo que lo corrija (<code>repair</code>, activo por defecto). Mientras desarrollas, <code>a2ui(validate: &#39;strict&#39;, repair: false)</code> te deja ver rápido los errores del modelo.</p>
+</aside>
+<h2 is-upgraded>App: dibuja las superficies</h2>
+<p>Los paquetes de A2UI de la app ya los agregaste en la sección anterior. La app <strong>no</strong> depende de <code>genkit_a2ui</code>, que es solo del servidor.</p>
+<p>Crea <code>lib/viajaria_ui.dart</code>. La función <code>a2uiMessagesFrom</code> saca los mensajes JSON de las partes A2UI de cada chunk, y un <code>MessageProcessor</code> los aplica. Cada superficie que crea el modelo se dibuja con <code>A2uiSurface</code>:</p>
+<pre><code language="language-dart" class="language-dart">import &#39;dart:async&#39;;
+
+import &#39;package:a2ui_core/a2ui_core.dart&#39;;
+import &#39;package:a2ui_flutter/a2ui_flutter.dart&#39;;
+import &#39;package:genkit/client.dart&#39;;
+import &#39;package:genkit/experimental_client.dart&#39;;
+import &#39;package:material_ui/material_ui.dart&#39;;
+
+import &#39;a2ui_inputs.dart&#39;;
+import &#39;main.dart&#39; show baseUrl;
+
+/// El tipo de las partes A2UI que manda el servidor.
+const a2uiMimeType = &#39;application/a2ui+json&#39;;
+
+/// Los mensajes A2UI (JSON) que vienen en las partes de un chunk.
+Iterable&lt;Map&lt;String, dynamic&gt;&gt; a2uiMessagesFrom(List&lt;Part&gt;? parts) sync* {
+  for (final part in parts ?? const &lt;Part&gt;[]) {
+    if (part.metadata?[&#39;mimeType&#39;] != a2uiMimeType) continue;
+    if (part.data?[&#39;messages&#39;] case final List messages) {
+      yield* messages.whereType&lt;Map&gt;().map((m) =&gt; m.cast&lt;String, dynamic&gt;());
+    }
+  }
+}
+
+sealed class _Entry {
+  const _Entry();
+}
+
+class _TextEntry extends _Entry {
+  _TextEntry(this.isUser, this.text);
+
+  final bool isUser;
+  String text;
+}
+
+class _SurfaceEntry extends _Entry {
+  const _SurfaceEntry(this.surface);
+
+  final SurfaceModel&lt;ComponentImplementation&gt; surface;
+}
+
+class ViajarIAUiChat extends StatefulWidget {
+  const ViajarIAUiChat({super.key});
+
+  @override
+  State&lt;ViajarIAUiChat&gt; createState() =&gt; _ViajarIAUiChatState();
+}
+
+class _ViajarIAUiChatState extends State&lt;ViajarIAUiChat&gt; {
+  late final _agent = remoteAgent(url: &#39;$baseUrl/api/viajaria-ui&#39;);
+  late final _chat = _agent.chat();
+
+  // El renderer: aplica los mensajes A2UI y guarda las superficies.
+  late final _processor = MessageProcessor&lt;ComponentImplementation&gt;(
+    // el catálogo básico 1.0 (el mismo del servidor) con los componentes de material_ui
+    catalogs: [basicMaterialUiCatalog],
+    defaultVersion: A2uiProtocolVersion.v1_0,
+    validationConfig: ValidationConfig.relaxed,
+    outboundListener: _onOutbound,
+    unifiedOutbound: true,
+  );
+
+  final _controller = TextEditingController();
+  final _entries = &lt;_Entry&gt;[];
+
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Cada superficie nueva se vuelve una entrada más del chat.
+    _processor.model.onSurfaceCreated.subscribe(
+      (surface) =&gt; setState(() =&gt; _entries.add(_SurfaceEntry(surface))),
+    );
+
+    // El servidor borra una superficie antes de volver a dibujarla.
+    _processor.model.onSurfaceDeleted.subscribe(
+      (id) =&gt; setState(() {
+        _entries.removeWhere((e) =&gt; e is _SurfaceEntry &amp;&amp; e.surface.id == id);
+      }),
+    );
+  }
+
+  @override
+  void dispose() {
+    _processor.dispose();
+    _agent.close();
+
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future&lt;void&gt; _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _busy) return;
+
+    _controller.clear();
+    setState(() =&gt; _entries.add(_TextEntry(true, text)));
+    await _runTurn(_chat.sendStream(text: text));
+  }
+
+  // Un botón de la superficie se manda al agente como el siguiente turno.
+  void _onOutbound(RendererToAgentMessage message) {
+    if (message is! ActionMessage || _busy) return;
+    setState(() =&gt; _entries.add(_TextEntry(true, &#39;▶ ${message.action.name}&#39;)));
+
+    final payload = Message(
+      role: Role.user,
+      content: [
+        DataPart(
+          data: RendererToAgentMessagePayload([message]).toJson(),
+          metadata: {&#39;mimeType&#39;: a2uiMimeType},
+        ),
+      ],
+    );
+    unawaited(_runTurn(_chat.sendStream(message: payload)));
+  }
+
+  Future&lt;void&gt; _runTurn(AgentTurn turn) async {
+    setState(() =&gt; _busy = true);
+    _TextEntry? prose;
+
+    try {
+      await for (final chunk in turn.stream) {
+        // 1) El texto normal va al chat.
+        if (chunk.text.isNotEmpty) {
+          if (prose == null) {
+            prose = _TextEntry(false, &#39;&#39;);
+            _entries.add(prose);
+          }
+          setState(() =&gt; prose!.text += chunk.text);
+        }
+
+        // 2) Los mensajes A2UI van al renderer.
+        for (final message in a2uiMessagesFrom(chunk.raw.modelChunk?.content)) {
+          try {
+            _processor.processMessages(message);
+          } on A2uiError catch (e) {
+            debugPrint(&#39;No se pudo aplicar el mensaje A2UI: ${e.message}&#39;);
+          }
+        }
+      }
+
+      await turn.response;
+    } catch (e) {
+      setState(() =&gt; _entries.add(_TextEntry(false, &#39;Error: $e&#39;)));
+    } finally {
+      if (mounted) setState(() =&gt; _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) =&gt; Scaffold(
+    appBar: AppBar(title: const Text(&#39;ViajarIA (UI)&#39;)),
+    body: Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: _entries.length,
+            itemBuilder: (context, i) =&gt; switch (_entries[i]) {
+              _TextEntry(:final isUser, :final text) =&gt; Align(
+                alignment: isUser
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text(text),
+                ),
+              ),
+              // La superficie A2UI que armó el modelo.
+              _SurfaceEntry(:final surface) =&gt; A2uiSurface(
+                key: ObjectKey(surface),
+                surface: surface,
+              ),
+            },
+          ),
+        ),
+        if (_busy) const LinearProgressIndicator(),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: TextField(
+            controller: _controller,
+            enabled: !_busy,
+            decoration: const InputDecoration(
+              hintText: &#39;Pide destinos, una lista, un formulario...&#39;,
+            ),
+            onSubmitted: (_) =&gt; _send(),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+</code></pre>
+<p>En <code>lib/main.dart</code> cambia la pantalla inicial para probar el nuevo chat y agrega <code>import &#39;viajaria_ui.dart&#39;;</code> arriba:</p>
+<pre><code language="language-dart" class="language-dart">void main() =&gt; runApp(
+  const MaterialApp(
+    localizationsDelegates: [fm.DefaultMaterialLocalizations.delegate],
+    home: ViajarIAUiChat(),
+  ),
+);
+</code></pre>
+<p>Ejecuta la app (<code>flutter run</code>) y pregunta:</p>
+<ul>
+<li><em>&#34;Muéstrame destinos de playa&#34;</em> → debe aparecer una tarjeta por destino.</li>
+<li><em>&#34;Dame un formulario corto para pedir una cotización de viaje (destino y correo) con un botón de enviar&#34;</em> → un formulario; al enviarlo, los valores vuelven al agente como el siguiente turno.</li>
+</ul>
+<aside class="special"><p><strong>Qué pasó:</strong> el modelo escribió un bloque Express, <code>a2ui()</code> lo validó y lo convirtió en mensajes JSON dentro del stream, <code>a2uiMessagesFrom</code> los sacó del chunk, <code>MessageProcessor</code> los aplicó y <code>A2uiSurface</code> los dibujó. Al pulsar un botón, el <code>outboundListener</code> recibe la acción y la app la manda como <code>{&#34;messages&#34;: [...]}</code>, el mismo formato JSON.</p>
+</aside>
+<aside class="warning"><p><strong>Trata lo que emite el modelo como entrada no confiable.</strong> La validación revisa la estructura y los tipos de los componentes, <strong>no</strong> sus valores: un modelo con prompt injection puede emitir una <code>Image.url</code> cualquiera. Quien renderiza (tu catálogo en la app) debe sanitizar las props, y en web conviene una Content Security Policy que limite <code>img-src</code>. Tampoco metas datos secretos en el modelo de datos: pueden volver en el <code>context</code> de una acción.</p>
+</aside>
+<aside class="special"><p>El catálogo básico incluye una función <code>openUrl</code> para botones que abren un enlace en el navegador. Esta app no la registra (no le pasa un callback a <code>basicCatalog()</code>), así que si el modelo genera un botón de ese tipo, no hará nada. Es a propósito: la URL la elige el modelo, y abrirla sin control sería otro punto de entrada para un prompt injection.</p>
+</aside>
+<h2 is-upgraded>Catálogo propio en JSON: una <code>DestinationCard</code></h2>
+<p>Hasta aquí el modelo arma cada destino con piezas básicas (<code>Card</code>, <code>Column</code>, <code>Text</code>). Un <strong>catálogo propio</strong> le da un componente a la medida: una <code>DestinationCard</code> que el servidor le anuncia al modelo y que la app sabe dibujar.</p>
+<p>Un catálogo tiene <strong>dos mitades que deben coincidir en el id y en el nombre del componente</strong>:</p>
+<table>
+<tr><td colspan="1" rowspan="1"><p>Mitad</p>
+</td><td colspan="1" rowspan="1"><p>Qué es</p>
+</td><td colspan="1" rowspan="1"><p>Dónde</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p>Servidor</p>
+</td><td colspan="1" rowspan="1"><p>El schema JSON: qué componentes puede usar el modelo</p>
+</td><td colspan="1" rowspan="1"><p><code>viajaria-catalog.json</code></p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p>App</p>
+</td><td colspan="1" rowspan="1"><p><code>ComponentImplementation</code>: el widget que lo dibuja</p>
+</td><td colspan="1" rowspan="1"><p><code>lib/destination_card.dart</code> (Flutter)</p>
+</td></tr>
+</table>
+<h3 is-upgraded>Servidor: el catálogo en JSON</h3>
+<p>Crea <code>viajaria-catalog.json</code> en la raíz de <code>viajaria_server</code>. Usa el formato <code>catalog.json</code> de la especificación de A2UI: cada componente es un JSON Schema, y la <code>description</code> de cada propiedad es lo que <strong>ve el modelo</strong>:</p>
+<pre><code language="language-json" class="language-json">{
+  &#34;catalogId&#34;: &#34;https://viajaria.example/catalogs/viajaria/v1/catalog.json&#34;,
+  &#34;protocolVersion&#34;: &#34;1.0&#34;,
+  &#34;components&#34;: {
+    &#34;DestinationCard&#34;: {
+      &#34;type&#34;: &#34;object&#34;,
+      &#34;description&#34;: &#34;Tarjeta con la información de un destino de viaje. Úsala para cada destino de una lista o resultado.&#34;,
+      &#34;properties&#34;: {
+        &#34;component&#34;: {
+          &#34;const&#34;: &#34;DestinationCard&#34;
+        },
+        &#34;name&#34;: {
+          &#34;$ref&#34;: &#34;common_types.json#/$defs/DynamicString&#34;,
+          &#34;description&#34;: &#34;Nombre del destino.&#34;
+        },
+        &#34;country&#34;: {
+          &#34;$ref&#34;: &#34;common_types.json#/$defs/DynamicString&#34;,
+          &#34;description&#34;: &#34;País del destino.&#34;
+        },
+        &#34;type&#34;: {
+          &#34;type&#34;: &#34;string&#34;,
+          &#34;description&#34;: &#34;Tipo de destino, por ejemplo playa o cultura.&#34;
+        },
+        &#34;suggestedDays&#34;: {
+          &#34;type&#34;: &#34;number&#34;,
+          &#34;description&#34;: &#34;Días sugeridos para visitarlo, de 1 a 14.&#34;
+        }
+      },
+      &#34;required&#34;: [
+        &#34;component&#34;,
+        &#34;name&#34;,
+        &#34;country&#34;
+      ]
+    }
+  }
+}
+</code></pre>
+<aside class="special"><p>También puedes definir el catálogo en código, sin el JSON. <code>A2uiCatalogComponent.simple</code> arma el mismo JSON Schema a partir de una lista de parámetros, y el modelo ve la misma firma: <code>DestinationCard(name, country, type?, suggestedDays?)</code>. Si lo haces así, registra <code>viajariaCatalog</code> directo con <code>loadCatalog(ai, id: &#39;viajaria&#39;, catalog: viajariaCatalog)</code>, en vez de leer el archivo como en el siguiente paso.</p>
+</aside>
+<pre><code language="language-dart" class="language-dart">final viajariaCatalog = basicCatalog.extend(
+  id: &#39;https://viajaria.example/catalogs/viajaria/v1/catalog.json&#39;,
+  components: [
+    A2uiCatalogComponent.simple(
+      name: &#39;DestinationCard&#39;,
+      description:
+          &#39;Tarjeta con la información de un destino de viaje. Úsala para &#39;
+          &#39;cada destino de una lista o resultado.&#39;,
+      params: [
+        // Un texto literal o un binding al modelo de datos (`$/path`).
+        const A2uiParam.dynamicValue(
+          &#39;name&#39;,
+          required: true,
+          description: &#39;Nombre del destino.&#39;,
+        ),
+        const A2uiParam.dynamicValue(
+          &#39;country&#39;,
+          required: true,
+          description: &#39;País del destino.&#39;,
+        ),
+        // Solo un valor literal.
+        const A2uiParam.string(
+          &#39;type&#39;,
+          description: &#39;Tipo de destino, por ejemplo playa o cultura.&#39;,
+        ),
+        const A2uiParam.number(
+          &#39;suggestedDays&#39;,
+          description: &#39;Días sugeridos para visitarlo, de 1 a 14.&#39;,
+        ),
+      ],
+    ),
+  ],
+);
+</code></pre>
+<aside class="warning"><p><strong>El orden de las propiedades importa.</strong> Express es posicional: el modelo escribe <code>DestinationCard(&#34;Cusco&#34;, &#34;Perú&#34;, &#34;cultura&#34;, 4)</code>, y el orden de <code>properties</code> decide qué argumento es cuál.</p>
+</aside>
+<p>En <code>bin/server.dart</code> agrega los imports y, dentro de <code>main</code>, <strong>una sola vez y antes de servir</strong>, justo después de crear <code>ai</code>, carga el JSON y regístralo. Lo extendemos sobre el catálogo básico para que el modelo siga teniendo <code>Column</code>, <code>Text</code>, <code>Button</code>...:</p>
+<pre><code language="language-dart" class="language-dart">import &#39;dart:convert&#39;;
+import &#39;dart:io&#39;;
+</code></pre>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  final ai = Genkit(plugins: [googleAI(), A2uiPlugin()]);
+
+  // DestinationCard viene del JSON; el resto del catálogo básico se conserva.
+  final custom = A2uiCatalog.fromJson(
+    jsonDecode(await File(&#39;viajaria-catalog.json&#39;).readAsString())
+        as Map&lt;String, dynamic&gt;,
+  );
+
+  await loadCatalog(
+    ai,
+    id: &#39;viajaria&#39;,
+    catalog: basicCatalog.extend(
+      id: custom.id,
+      components: custom.components.values,
+    ),
+  );
+
+  // El código anterior...
+}
+</code></pre>
+<p>Y apunta el agente de UI a ese catálogo. Reemplaza la definición de <code>uiAgent</code>:</p>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  // El código anterior...
+
+  final uiAgent = ai.defineAgent(
+    name: &#39;viajariaUi&#39;,
+    model: googleAI.gemini(&#39;gemini-flash-latest&#39;),
+    system:
+        &#39;Eres ViajarIA, la asistente de viajes de una agencia digital. &#39;
+        &#39;Busca destinos con la tool searchDestinations. Presenta cada destino con un &#39;
+        &#39;componente DestinationCard (nombre, país, tipo y días sugeridos si los &#39;
+        &#39;tienes). Si ayuda, agrega un Button &#34;Me interesa&#34;. Mantén el texto &#39;
+        &#39;breve. Responde en español.&#39;,
+    tools: [searchDestinations],
+    use: [
+      a2ui(catalog: &#39;viajaria&#39;, validate: &#39;strict&#39;),
+      retry(maxRetries: 2),
+    ],
+    store: InMemorySessionStore(),
+  );
+
+  // El código anterior...
+}
+</code></pre>
+<p>Reinicia el servidor.</p>
+<aside class="special"><p><code>&#39;viajaria&#39;</code> es el nombre con el que registraste el catálogo en GenKit; el <code>catalogId</code> del JSON es el que viaja a la app en cada superficie. Con <code>validate: &#39;strict&#39;</code> el servidor ahora <strong>rechaza</strong> cualquier componente que no esté en el catálogo.</p>
+</aside>
+<aside class="special"><p>Si no necesitas los componentes básicos, puedes cargar el JSON directo: <code>loadCatalog(ai, id: &#39;viajaria&#39;, file: &#39;./viajaria-catalog.json&#39;)</code>. El modelo solo podrá usar los componentes del archivo.</p>
+</aside>
+<h3 is-upgraded>App: dibuja el componente</h3>
+<p>Crea <code>lib/destination_card.dart</code>. Un <code>ComponentImplementation</code> son tres cosas: un <code>name</code>, un <code>schema</code> (las props) y un <code>builder</code>. El catálogo de la app lleva el <strong>mismo id</strong> del JSON del servidor:</p>
+<pre><code language="language-dart" class="language-dart">import &#39;package:a2ui_core/a2ui_core.dart&#39;;
+import &#39;package:a2ui_flutter/a2ui_flutter.dart&#39;;
+import &#39;package:a2ui_flutter/basic_catalog.dart&#39;;
+import &#39;package:json_schema_builder/json_schema_builder.dart&#39;;
+import &#39;package:material_ui/material_ui.dart&#39;;
+
+import &#39;a2ui_inputs.dart&#39;;
+
+/// El MISMO catalogId de viajaria-catalog.json en el servidor.
+const viajariaCatalogId =
+    &#39;https://viajaria.example/catalogs/viajaria/v1/catalog.json&#39;;
+
+/// Cómo se ve una DestinationCard en la app.
+final destinationCard = ComponentImplementation(
+  name: &#39;DestinationCard&#39;, // el MISMO nombre del componente en el JSON
+  schema: Schema.object(
+    properties: {
+      // Aceptan un texto literal o un binding al modelo de datos.
+      &#39;name&#39;: CommonSchemasV1.dynamicString,
+      &#39;country&#39;: CommonSchemasV1.dynamicString,
+      &#39;type&#39;: Schema.string(),
+      &#39;suggestedDays&#39;: Schema.number(),
+    },
+    required: [&#39;name&#39;, &#39;country&#39;],
+  ),
+  builder: (context, node, props, buildChild) {
+    final type = props.string(&#39;type&#39;);
+    final days = props.number(&#39;suggestedDays&#39;)?.toInt();
+
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.place),
+        title: Text(props.string(&#39;name&#39;) ?? &#39;&#39;),
+        subtitle: Text([?props.string(&#39;country&#39;), ?type].join(&#39; · &#39;)),
+        trailing: days == null ? null : Text(&#39;$days días&#39;),
+      ),
+    );
+  },
+);
+
+/// El catálogo básico 1.0 (con los componentes de material_ui) más la DestinationCard, con el id del servidor.
+final viajariaCatalog = CatalogImplementation(
+  id: viajariaCatalogId,
+  protocolVersion: A2uiProtocolVersion.v1_0,
+  components: [...basicMaterialUiComponents, destinationCard],
+  functions: BasicCatalog.v1_0().functions.values.toList(),
+  definitions: BasicComponents.api.definitions,
+);
+</code></pre>
+<p>Después, en <code>lib/viajaria_ui.dart</code>, importa <code>destination_card.dart</code>, quita el import de <code>a2ui_inputs.dart</code> (ya no lo usas) y cambia el catálogo del <code>MessageProcessor</code>:</p>
+<pre><code language="language-dart" class="language-dart">import &#39;destination_card.dart&#39;;
+
+// El Stateful va aquí...
+
+class _ViajarIAUiChatState extends State&lt;ViajarIAUiChat&gt; {
+  // El código anterior...
+
+  late final _processor = MessageProcessor&lt;ComponentImplementation&gt;(
+    // el MISMO id del servidor
+    catalogs: [viajariaCatalog],
+    defaultVersion: A2uiProtocolVersion.v1_0,
+    validationConfig: ValidationConfig.relaxed,
+    outboundListener: _onOutbound,
+    unifiedOutbound: true,
+  );
+
+  // El código anterior...
+}
+</code></pre>
+<p>Ejecuta la app y pide <em>&#34;Muéstrame destinos de playa&#34;</em>. Ahora cada destino debe salir como una <code>DestinationCard</code>.</p>
+<aside class="special"><p><strong>Por qué dos mitades:</strong> el servidor decide <strong>qué puede pedir</strong> el modelo y lo valida; la app decide <strong>cómo se ve</strong>. Si el modelo pide <code>DestinationCard</code> y la app no la registró, o el id no coincide, la superficie no se puede dibujar.</p>
+</aside>
+<aside class="special"><p>La <code>DestinationCard</code> muestra <code>name</code> y <code>country</code> con <code>Text</code>, no con Markdown, y no recibe URLs. Es a propósito: es el renderizado quien debe sanitizar lo que viene del modelo.</p>
+</aside>
+<h2 is-upgraded>Middleware propio: protege las imágenes</h2>
+<p><code>validate: &#39;strict&#39;</code> solo revisa la <strong>estructura</strong> de los componentes, no sus valores. El catálogo básico sigue incluyendo <code>Image</code>, y un modelo con prompt injection puede pedir una imagen de cualquier URL. La recomendación del propio paquete es agregar tu <strong>propio middleware</strong> que revise los mensajes JSON que emite <code>a2ui()</code>.</p>
+<p>Un middleware de modelo envuelve la llamada al modelo: recibe la petición, llama a <code>next(...)</code> y puede cambiar lo que vuelve. El nuestro tiene una sola regla: si una <code>Image</code> apunta a un host que no está en la lista permitida, la cambia por un <code>Text</code>.</p>
+<p>En <code>bin/server.dart</code> agrega la clase (fuera de <code>main</code>). <code>GenerateMiddleware</code>, <code>ModelResponse</code> y <code>Part</code> vienen de <code>package:genkit/genkit.dart</code>, que ya importaste:</p>
+<pre><code language="language-dart" class="language-dart">class ImageHostGuard extends GenerateMiddleware {
+  ImageHostGuard(this.allowedHosts);
+
+  final Set&lt;String&gt; allowedHosts;
+
+  @override
+  Future&lt;ModelResponse&gt; model(
+    ModelRequest request,
+    ActionFnArg&lt;ModelResponseChunk, ModelRequest, void&gt; ctx,
+    Future&lt;ModelResponse&gt; Function(
+      ModelRequest request,
+      ActionFnArg&lt;ModelResponseChunk, ModelRequest, void&gt; ctx,
+    )
+    next,
+  ) async {
+    // 1) Lo que va por el stream: revisa cada chunk antes de enviarlo.
+    final guardedCtx = ctx.streamingRequested
+        ? ctx.copyWith(
+            sendChunk: (chunk) =&gt; ctx.sendChunk(
+              ModelResponseChunk(
+                role: chunk.role,
+                index: chunk.index,
+                content: chunk.content.map(_guard).toList(),
+                custom: chunk.custom,
+                aggregated: chunk.aggregated,
+              ),
+            ),
+          )
+        : ctx;
+
+    final response = await next(request, guardedCtx);
+
+    // 2) El mensaje final (el que se guarda en el historial).
+    final message = response.message;
+    if (message == null) return response;
+
+    return ModelResponse(
+      message: Message(
+        role: message.role,
+        content: message.content.map(_guard).toList(),
+        metadata: message.metadata,
+      ),
+      finishReason: response.finishReason,
+      finishMessage: response.finishMessage,
+      latencyMs: response.latencyMs,
+      usage: response.usage,
+      custom: response.custom,
+      raw: response.raw,
+      request: response.request,
+      operation: response.operation,
+    );
+  }
+
+  /// Si la parte es A2UI, cambia las imágenes de hosts no permitidos por texto.
+  Part _guard(Part part) {
+    if (!isA2uiPart(part)) return part;
+
+    // Copia profunda de los mensajes JSON: no modificamos lo que devolvió el modelo.
+    final messages = a2uiEnvelopesFromParts([part])
+        .map((m) =&gt; jsonDecode(jsonEncode(m)) as Map&lt;String, dynamic&gt;)
+        .toList();
+
+    var blocked = false;
+    for (final message in messages) {
+      // Los componentes llegan en createSurface (superficie nueva) y en
+      // updateComponents (actualización de una superficie existente).
+      for (final kind in const [&#39;createSurface&#39;, &#39;updateComponents&#39;]) {
+        final body = message[kind];
+        final components = body is Map ? body[&#39;components&#39;] : null;
+        if (components is! List) continue;
+
+        for (final c in components) {
+          if (c is Map &amp;&amp; c[&#39;component&#39;] == &#39;Image&#39; &amp;&amp; !_isAllowed(c[&#39;url&#39;])) {
+            final id = c[&#39;id&#39;];
+            c
+              ..clear()
+              ..[&#39;id&#39;] = id
+              ..[&#39;component&#39;] = &#39;Text&#39;
+              ..[&#39;text&#39;] = &#39;[imagen bloqueada]&#39;;
+            blocked = true;
+          }
+        }
+      }
+    }
+
+    // Sin cambios, la parte sigue igual (con su fuente Express).
+    // Con cambios, la fuente Express ya no coincide: se arma sin ella.
+    return blocked ? a2uiPart(messages) : part;
+  }
+
+  bool _isAllowed(Object? url) {
+    // Un binding { path } no es una URL que podamos revisar: se bloquea.
+    if (url is! String) return false;
+    final uri = Uri.tryParse(url);
+    return uri != null &amp;&amp;
+        uri.scheme == &#39;https&#39; &amp;&amp;
+        allowedHosts.contains(uri.host);
+  }
+}
+</code></pre>
+<p>Dentro de <code>main</code>, junto al <code>loadCatalog</code>, regístralo. <code>defineGenerateMiddleware</code> devuelve una definición que <strong>se llama</strong> para obtener la referencia que va en <code>use</code>. Y agrégalo al agente de UI:</p>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  // El código anterior...
+
+  final imageHostGuard = ai.defineGenerateMiddleware&lt;void&gt;(
+    name: &#39;imageHostGuard&#39;,
+    create: (config, ctx) =&gt; ImageHostGuard({&#39;covers.viajaria.example&#39;}),
+  );
+
+  final uiAgent = ai.defineAgent(
+    // ...
+    use: [
+      imageHostGuard(),
+      a2ui(catalog: &#39;viajaria&#39;, validate: &#39;strict&#39;),
+      retry(maxRetries: 2),
+    ],
+    // ...
+  );
+
+  // El código anterior...
+}
+</code></pre>
+<p>Para probarlo, pide <em>&#34;Muéstrame un destino con su foto, usa esta imagen: https://example.com/foto.png&#34;</em>. Si el modelo genera una <code>Image</code>, debe llegar a la app como un texto &#34;[imagen bloqueada]&#34;.</p>
+<aside class="special"><p><strong>El orden en </strong><strong><code>use</code></strong><strong> importa.</strong> El primer middleware de la lista es el más externo y el último queda pegado al modelo. Por eso el guard va <strong>antes</strong> de <code>a2ui()</code>: cuando <code>a2ui()</code> termina de convertir el bloque en mensajes JSON, esa parte pasa por el guard antes de llegar al cliente. Y <code>retry()</code> va <strong>al final</strong>: así repite solo la llamada al modelo.</p>
+</aside>
+<aside class="special"><p><strong>Por qué se quita la fuente Express: </strong><code>a2ui()</code> guarda el bloque Express original en la metadata de la parte, y es lo que el modelo ve en los siguientes turnos. Si el guard cambia los mensajes JSON, ese Express ya no coincide, así que la parte se arma de nuevo sin él.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Confirma una reserva con un interrupt" duration="10">
+        
+        <p>Hasta ahora el agente decide y ejecuta solo. Hay acciones que <strong>no deberías dejar que haga sin preguntarte</strong>: reservar un tour, pagar un anticipo, cancelar un viaje. Para eso están los <strong>interrupts</strong>: la tool del servidor se <strong>pausa</strong>, la app le pregunta al usuario y, con su respuesta, el agente <strong>continúa</strong>.</p>
+<pre> 1. Usuario: &#34;Resérvame un tour a Cusco&#34;
+ 2. Agente (servidor): llama a la tool reserveTour → se PAUSA (interrupt)
+ 3. App Flutter: recibe el interrupt con el destino
+ 4. App Flutter: muestra &#34;¿Reservar el tour a Cusco?&#34; y el usuario confirma o cancela
+ 5. App Flutter: responde → chat.resume(respond: [...])
+ 6. Agente: confirma la reserva (o dice que se canceló)
+</pre>
+<aside class="special"><p>La decisión sale del servidor y se queda en la app: el modelo <strong>no puede</strong> reservar sin que el usuario lo apruebe. Es el mismo mecanismo para cualquier acción que necesite un &#34;sí&#34; humano, o un dato que solo vive en el cliente.</p>
+</aside>
+<aside class="warning"><p><strong>Experimental</strong>, igual que el resto de la Agents API.</p>
+</aside>
+<h2 is-upgraded>Servidor: una tool que pausa</h2>
+<p>En <code>bin/server.dart</code> agrega el schema junto a los otros:</p>
+<pre><code language="language-dart" class="language-dart">@Schema()
+abstract class $ReserveTourInput {
+  String get destination;
+}
+</code></pre>
+<p>Genera el código otra vez:</p>
+<pre>dart run build_runner build --delete-conflicting-outputs
+</pre>
+<p>Define la tool y un <strong>tercer agente</strong>, sin tocar los anteriores (un cliente que no sepa manejar interrupts se quedaría esperando, por eso no se lo agregamos al agente de texto). Pon la tool y el agente junto a los otros, y el <code>addAgent</code> en tu router:</p>
+<pre><code language="language-dart" class="language-dart">Future&lt;void&gt; main() async {
+  // El código anterior...
+
+  final reserveTour = ai.defineTool(
+    name: &#39;reserveTour&#39;,
+    description: &#39;Reserva un tour para el usuario. Requiere su confirmación.&#39;,
+    inputSchema: ReserveTourInput.$schema,
+    // Sin outputSchema: el resultado lo pone la app al reanudar.
+    fn: (input, _) async =&gt; .interrupt(),
+  );
+
+  final reservasAgent = ai.defineAgent(
+    name: &#39;viajariaReservas&#39;,
+    model: googleAI.gemini(&#39;gemini-flash-latest&#39;),
+    system:
+        &#39;Eres ViajarIA, la asistente de viajes de una agencia digital. &#39;
+        &#39;Busca destinos con searchDestinations. Si el usuario pide reservar un tour, &#39;
+        &#39;usa reserveTour con el destino exacto. Cuando recibas el resultado, &#39;
+        &#39;confirma la reserva o di que se canceló. Responde en español.&#39;,
+    tools: [searchDestinations, reserveTour],
+    store: InMemorySessionStore(),
+  );
+
+  final genkit = GenkitRouter()
+    ..addAction(recommendFlow)
+    ..addAgent(agent, path: &#39;/api/viajaria&#39;)
+    ..addAgent(uiAgent, path: &#39;/api/viajaria-ui&#39;)
+    ..addAgent(reservasAgent, path: &#39;/api/viajaria-reservas&#39;);
+
+  // El código anterior...
+}
+</code></pre>
+<p>Con esto, cuando el modelo llame a <code>reserveTour</code>, el turno termina con <code>finishReason: interrupted</code> y la app recibe la petición pendiente. Reinicia el servidor (<code>dart run bin/server.dart</code>).</p>
+<aside class="special"><p>Si una tool siempre debe pausar, existe <code>ai.defineInterrupt()</code>. Aquí usamos una tool normal que devuelve <code>.interrupt()</code>; así también podrías decidir <strong>cuándo</strong> pausar (por ejemplo, solo si el tour tiene cupo limitado).</p>
+</aside>
+<aside class="special"><p>El middleware <code>toolApproval</code> (paquete <code>genkit_middleware</code>) hace lo mismo sin escribir la pausa: cualquier tool que no esté aprobada se pausa hasta que el usuario la apruebe, y luego <strong>se ejecuta en el servidor</strong>. Revisa <code>genkit_middleware</code> en pub.dev.</p>
+</aside>
+<h2 is-upgraded>App: pregunta al usuario y reanuda</h2>
+<p>En <code>viajaria_app</code> crea <code>lib/viajaria_reservas.dart</code>:</p>
+<pre><code language="language-dart" class="language-dart">import &#39;package:genkit/experimental_client.dart&#39;; // remoteAgent (browser-safe)
+import &#39;package:genkit/genkit.dart&#39;;
+import &#39;package:material_ui/material_ui.dart&#39;;
+
+import &#39;main.dart&#39; show baseUrl;
+
+class ViajarIAReservas extends StatefulWidget {
+  const ViajarIAReservas({super.key});
+
+  @override
+  State&lt;ViajarIAReservas&gt; createState() =&gt; _ViajarIAReservasState();
+}
+
+class _ViajarIAReservasState extends State&lt;ViajarIAReservas&gt; {
+  late final _agent = remoteAgent(url: &#39;$baseUrl/api/viajaria-reservas&#39;);
+  late final _chat = _agent.chat();
+
+  final _controller = TextEditingController();
+  final _reservas = &lt;String&gt;[]; // las reservas viven en la app
+
+  String _answer = &#39;&#39;;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _agent.close();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =&gt; Scaffold(
+    appBar: AppBar(title: const Text(&#39;ViajarIA (reservas)&#39;)),
+    body: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Expanded(child: SingleChildScrollView(child: Text(_answer))),
+          if (_reservas.isNotEmpty) ...[
+            const Divider(),
+            Text(&#39;Mis reservas: ${_reservas.join(&#39;, &#39;)}&#39;),
+          ],
+          TextField(
+            controller: _controller,
+            enabled: !_busy,
+            decoration: const InputDecoration(
+              hintText: &#39;Pide reservar un tour&#39;,
+            ),
+            onSubmitted: (_) =&gt; _send(),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Future&lt;bool&gt; _confirm(String title) async {
+    final ok = await showDialog&lt;bool&gt;(
+      context: context,
+      builder: (context) =&gt; AlertDialog(
+        title: const Text(&#39;¿Reservar este tour?&#39;),
+        content: Text(title),
+        actions: [
+          TextButton(
+            onPressed: () =&gt; Navigator.pop(context, false),
+            child: const Text(&#39;Cancelar&#39;),
+          ),
+          FilledButton(
+            onPressed: () =&gt; Navigator.pop(context, true),
+            child: const Text(&#39;Reservar&#39;),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  Future&lt;void&gt; _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _busy) return;
+    _controller.clear();
+
+    setState(() {
+      _busy = true;
+      _answer = &#39;&#39;;
+    });
+
+    try {
+      final turn = _chat.sendStream(text: text);
+      await for (final chunk in turn.stream) {
+        setState(() =&gt; _answer += chunk.text);
+      }
+      var res = await turn.response;
+
+      // Mientras el agente esté pausado, resuelve cada interrupt y reanuda.
+      while (res.finishReason == FinishReason.interrupted) {
+        final parts = &lt;ToolResponsePart&gt;[];
+
+        for (final interrupt in res.interrupts) {
+          if (interrupt.name == &#39;reserveTour&#39;) {
+            final args = interrupt.input as Map&lt;String, dynamic&gt;;
+            final destination = args[&#39;destination&#39;] as String;
+
+            final confirmed = await _confirm(destination);
+            if (confirmed) setState(() =&gt; _reservas.add(destination));
+
+            parts.add(
+              interrupt.respond({
+                &#39;confirmed&#39;: confirmed,
+                &#39;destination&#39;: destination,
+              }),
+            );
+          }
+        }
+
+        res = await _chat.resume(respond: parts);
+      }
+
+      setState(() =&gt; _answer = res.text); // respuesta final del agente
+    } catch (e) {
+      setState(() =&gt; _answer = &#39;Error: $e&#39;);
+    } finally {
+      if (mounted) setState(() =&gt; _busy = false);
+    }
+  }
+}
+</code></pre>
+<p>En <code>lib/main.dart</code> cambia la pantalla inicial para probarlo y reemplaza <code>import &#39;viajaria_ui.dart&#39;;</code> por <code>import &#39;viajaria_reservas.dart&#39;;</code>:</p>
+<pre><code language="language-dart" class="language-dart">void main() =&gt; runApp(
+  const MaterialApp(
+    localizationsDelegates: [fm.DefaultMaterialLocalizations.delegate],
+    home: ViajarIAReservas(),
+  ),
+);
+</code></pre>
+<p>Ejecuta la app (con el servidor corriendo) y escribe: <em>&#34;Resérvame un tour a Cusco&#34;</em>. Debe aparecer el diálogo; si confirmas, el agente responde que quedó reservado y el destino aparece en &#34;Mis reservas&#34;. Si cancelas, debe decir que no se hizo.</p>
+<aside class="special"><p><strong>Qué pasó:</strong> el turno terminó &#34;a medias&#34; con <code>finishReason: interrupted</code>. La app tomó la petición, preguntó al usuario y reanudó el <strong>mismo</strong> turno con <code>chat.resume</code>. El modelo nunca vio un &#34;sí&#34; que el usuario no dio.</p>
+</aside>
+<aside class="warning"><p>El runtime valida que cada <code>respond</code> coincida con una pausa activa (por nombre y por ID de referencia). No puedes inventar resultados desde el cliente para una tool que no pausó.</p>
+</aside>
+<aside class="warning"><p>La reserva aquí es <strong>solo en la app</strong> (una lista en memoria) para mantener el ejemplo simple. En una app real, el <code>respond</code> sería el resultado de llamar a tu backend con el usuario autenticado.</p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Antes de producción" duration="3">
+        
+        <p>Lo que construiste está pensado para desarrollo. Antes de desplegarlo, revisa al menos esto:</p>
+<ul>
+<li><strong>CORS: </strong><code>CorsOptions()</code> vacío permite <strong>todos</strong> los orígenes. Restringe con <code>CorsOptions(allowedOrigins: [&#39;https://tuapp.dev&#39;])</code>.</li>
+<li><strong>Autenticación:</strong> pasa un <code>contextProvider</code> a cada <code>addAgent</code> y manda el token desde Flutter con <code>headers</code> en <code>remoteAgent</code>. Aplica a todas las rutas del agente (turno, <code>getSnapshot</code> y <code>abort</code>).</li>
+<li><strong>Store compartido: </strong><code>InMemorySessionStore</code> se pierde al reiniciar y no sirve con varias instancias.</li>
+<li><strong>Archivos del servidor:</strong> la carpeta <code>prompts/</code> y el <code>viajaria-catalog.json</code> se leen desde disco, así que tienen que viajar con tu servidor.</li>
+<li><strong>API key:</strong> guárdala en un gestor de secretos, no en texto plano.</li>
+</ul>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="¡Felicitaciones!" duration="0">
+        
+        <p>Construiste un asistente con GenKit Dart: un servidor con schemas, un flow con su prompt en un archivo, tools, un agente y middleware, una app Flutter que conversa con él por streaming, una respuesta con interfaz generativa y un catálogo propio, y una tool que pide confirmación con un interrupt.</p>
+<h2 is-upgraded>Lo que cubriste</h2>
+<ul>
+<li><code>generate()</code> y salida estructurada con <code>schemantic</code></li>
+<li>Flows y tools tipados</li>
+<li>Prompts en archivos con Dotprompt</li>
+<li>Developer UI</li>
+<li><code>GenkitRouter</code></li>
+<li><code>defineAgent</code>, <code>remoteAgent</code> e interrupts</li>
+<li>Middleware (<code>retry</code> y uno propio)</li>
+<li>UI generativa con A2UI y un catálogo propio en JSON (<code>genkit_a2ui</code>, <code>a2ui_core</code> y <code>a2ui_flutter</code>)</li>
+</ul>
+<h2 is-upgraded>Siguientes pasos</h2>
+<ul>
+<li>Crear agentes que deleguen a otros.</li>
+<li>Usar GenKit en otros proveedores, como AI Logic o usarlo de modo offline con Gemma.</li>
+<li>Integrar Authorization (Bearer token) en nuestro backend.</li>
+<li>Realizar deploy a Cloud Functions, aunque en Dart sigue en modo experimental.</li>
+<li>Agregar observabilidad y métricas con GenKit, usando OpenTelemetry.</li>
+</ul>
+<h3 is-upgraded>📚 <strong>Recursos Adicionales</strong></h3>
+<h3 is-upgraded><strong>Documentación oficial:</strong></h3>
+<ul>
+<li><a href="https://genkit.dev/docs/dart/" target="_blank">Documentación de GenKit Dart</a></li>
+<li><a href="https://flutter.dev/blog/announcing-genkit-dart-1-0" target="_blank">GenKit Dart 1.0 en el blog de Flutter</a></li>
+<li><a href="https://a2ui.org/" target="_blank">A2UI</a></li>
+<li><a href="https://pub.dev/packages/genkit_a2ui" target="_blank">genkit_a2ui</a></li>
+</ul>
+
+
+      </google-codelab-step>
+    
+  </google-codelab>
+
+  <script src="https://cdn.jsdelivr.net/gh/Bit-Blazer/codelab-tools@main/codelab-elements/build/native-shim.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/Bit-Blazer/codelab-tools@main/codelab-elements/build/codelab-elements.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
+  <script>
+    hljs.highlightAll();
+  </script>
+
+</body>
+</html>

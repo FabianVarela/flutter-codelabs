@@ -1,0 +1,26 @@
+{
+  "environment": "web",
+  "format": "html",
+  "prefix": "https://cdn.jsdelivr.net/gh/Bit-Blazer/codelab-tools@main/codelab-elements/build",
+  "mainga4": "G-XXXXXXXXXX",
+  "updated": "2026-11-19T20:49:13-05:00",
+  "id": "genkit-dart-flutter",
+  "duration": 101,
+  "title": "Integrando GenKit Dart en Flutter",
+  "authors": [
+    "Fabián Varela"
+  ],
+  "summary": "Integrando GenKit Dart en Flutter",
+  "source": "genkit-dart-flutter.md",
+  "theme": "",
+  "status": "Published",
+  "categories": [
+    "flutter",
+    "genkit",
+    "firebase"
+  ],
+  "tags": [
+    "medium"
+  ],
+  "feedback_link": "https://github.com/FabianVarela"
+}
