@@ -1,35 +1,62 @@
-### Paso 1: Exportar el archivo Markdown con claat
+# Codelabs de Flutter y Firebase
 
-Primero, exporté el archivo Markdown del codelab usando el comando claat export:
+Codelabs no oficiales, en español, sobre Flutter, Firebase y GenKit. Cada uno es un tutorial paso a paso, hecho con
+[claat](https://github.com/googlecodelabs/tools/tree/main/claat), y este repositorio es el sitio que los publica: un
+catálogo con búsqueda, filtros y modo oscuro, en HTML, CSS y JavaScript sin frameworks.
+
+## Codelabs
+
+| Codelab                                                                  | Duración | Estado    |
+| ------------------------------------------------------------------------ | -------- | --------- |
+| [Firebase SQL Connect con Flutter](sql-connect-flutter/index.html)       | 133 min  | Publicado |
+| [Integrando GenKit Dart en Flutter](genkit-dart-flutter/index.html)      | 101 min  | Publicado |
+| [GenKit en el dispositivo con Flutter](genkit-flutter-device/index.html) | 115 min  | Borrador  |
+
+## Ver el sitio en local
+
 ```bash
-# Existen dos: sql-connect-flutter y genkit-dart-flutter
-cd catalog/codelabs && claat export -o .. [markdown-file].md
-```
-
-Explicación:
-- claat export: Comando para convertir un archivo Markdown a HTML.
-- -o /site: Especifica el directorio de salida en el que se generará el directorio del codelab.
-- El último parámetro es la ruta al archivo de Markdown de origen.
-
-Resultado:
-Este comando creó/actualizó el folder sql-connect-flutter/ con:
-- codelab.json - metadata del codelab
-- index.html - el contenido HTML generado
-- img/ - folder con las imágenes
-
-### Paso 2: Ejecutar el servidor
-
-Finalmente, ejecuté el servidor de desarrollo:
-```bash
-cd catalog
-node build-index.js . codelabs.json
-
-# Para ejecutar local con claat
-claat serve
-
-# Para ejecutar local con python
 python3 -m http.server 8000
 ```
 
-Resultado:
-El servidor quedó corriendo y disponible en http://localhost:8000.
+Y abre http://localhost:8000. También puedes usar `claat serve` o `npx http-server`.
+
+## Agregar o actualizar un codelab
+
+Los archivos Markdown de origen no están en este repositorio: viven en la carpeta `catalog/codelabs` de las
+herramientas de codelabs. Desde ahí:
+
+1. **Exporta** el Markdown a HTML con claat:
+
+   ```bash
+   cd catalog/codelabs
+   claat export -o .. <codelab>.md
+   ```
+
+   Esto crea o actualiza la carpeta del codelab (por ejemplo, `genkit-flutter-device/`) con:
+
+   - `index.html`: el contenido del codelab.
+   - `codelab.json`: los metadatos (título, duración, estado, categorías).
+   - `img/`: las imágenes.
+
+2. **Regenera el índice** del catálogo, que lee el `codelab.json` de cada carpeta:
+
+   ```bash
+   cd ..
+   node build-index.js . codelabs.json
+   ```
+
+3. **Copia** a este repositorio la carpeta del codelab y el `codelabs.json`, y súbelos.
+
+## Estructura
+
+```
+.
+├── index.html          # El catálogo
+├── style.css           # Estilos (tema claro y oscuro)
+├── app.js              # Búsqueda, filtros y orden
+├── build-index.js      # Genera codelabs.json
+├── codelabs.json       # El índice de codelabs (generado)
+├── sql-connect-flutter/
+├── genkit-dart-flutter/
+└── genkit-flutter-device/
+```
