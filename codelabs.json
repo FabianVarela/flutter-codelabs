@@ -20,6 +20,27 @@
     "source": "sql-connect-flutter.md"
   },
   {
+    "id": "genkit-flutter-device",
+    "title": "GenKit en el dispositivo con Flutter",
+    "summary": "GenKit en el dispositivo con Flutter",
+    "categories": [
+      "flutter",
+      "genkit",
+      "firebase"
+    ],
+    "tags": [
+      "medium"
+    ],
+    "duration": 115,
+    "updated": "2026-11-21T16:46:28-05:00",
+    "authors": [
+      "Fabián Varela"
+    ],
+    "status": "Published",
+    "url": "genkit-flutter-device/index.html",
+    "source": "genkit-flutter-device.md"
+  },
+  {
     "id": "genkit-dart-flutter",
     "title": "Integrando GenKit Dart en Flutter",
     "summary": "Integrando GenKit Dart en Flutter",
