@@ -1,0 +1,26 @@
+{
+  "environment": "web",
+  "format": "html",
+  "prefix": "https://cdn.jsdelivr.net/gh/Bit-Blazer/codelab-tools@main/codelab-elements/build",
+  "mainga4": "G-XXXXXXXXXX",
+  "updated": "2026-11-21T16:46:28-05:00",
+  "id": "genkit-flutter-device",
+  "duration": 115,
+  "title": "GenKit en el dispositivo con Flutter",
+  "authors": [
+    "Fabián Varela"
+  ],
+  "summary": "GenKit en el dispositivo con Flutter",
+  "source": "genkit-flutter-device.md",
+  "theme": "",
+  "status": "Published",
+  "categories": [
+    "flutter",
+    "genkit",
+    "firebase"
+  ],
+  "tags": [
+    "medium"
+  ],
+  "feedback_link": "https://github.com/FabianVarela"
+}
